@@ -62,6 +62,8 @@ class QLearning(object):
         init_reward.reward = 0
         init_reward.iteration_num = 0
         print("get here")
+
+        rospy.sleep(1)
         self.update_q_matrix(init_reward)
 
     def save_q_matrix(self):
@@ -86,9 +88,15 @@ class QLearning(object):
         self.q_matrix_pub.publish(matrix_msg)
 
         #call train so next message can arrive
+        if(max(self.action_matrix[self.current_state]) < 0):
+            self.reset_state()
         self.train_q_matrix()
         return
 
+    def reset_state(self):
+        self.prev_state = -1
+        self.current_state = 0
+        self.action = -1
 
     def train_q_matrix(self):
         #ideal state is [3,1,2] aka state 39
