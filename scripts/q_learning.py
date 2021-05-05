@@ -24,6 +24,8 @@ class QLearning(object):
         self.q_matrix_pub = rospy.Publisher("/q_learning/q_matrix", QMatrix, queue_size=10)
         rospy.Subscriber("/q_learning/reward", QLearningReward, self.update_q_matrix)
 
+        self.counter = 0
+
         # Fetch pre-built action matrix. This is a 2d numpy array where row indexes
         # correspond to the starting state and column indexes are the next states.
         #
@@ -87,10 +89,20 @@ class QLearning(object):
         
         self.q_matrix_pub.publish(matrix_msg)
 
-        #call train so next message can arrive
+        # call train so next message can arrive
         if(max(self.action_matrix[self.current_state]) < 0):
             self.reset_state()
         self.train_q_matrix()
+
+        print("Completed up to", data.iteration_num, "rounds")
+
+        # check every 100 itertions if q-matrix has changed yet (takes ab 1 sec)- HAVEN'T DONE YET
+
+        if data.iteration_num == 500:
+            print("Q-matrix converged")
+            print(self.q_matrix)
+            np.savetxt("output_q_matrix.txt", self.q_matrix)
+            rospy.signal_shutdown("Q-matrix has converged.")
         return
 
     def reset_state(self):
