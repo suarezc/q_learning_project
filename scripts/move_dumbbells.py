@@ -8,12 +8,13 @@ import rospy, rospkg, cv2, cv_bridge
 from sensor_msgs.msg import Image
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, Vector3
 
 class MoveDumbbells(object):
 
     def __init__(self):
 
-        self.initalized = False
+        self.initialized = False
 
         rospy.init_node('move_dumbbells')
 
@@ -36,26 +37,31 @@ class MoveDumbbells(object):
         self.goal_box = "one"
 
         # set color boundaries
-        self.lower_red = np.array([110, 100, 100])
-        self.upper_red = np.array([130, 255, 255])
+        self.lower_red = np.array([0,255,255])
+        self.upper_red = np.array([179, 255, 255])
 
         # Set up proportional control variables
         self.x_mid = 0
         self.constant_x = 0.05
 
         self.initialized = True
+        print("inited")
 
     def laser_callback(self, data):
         # If goals aren't set yet, do nothing
-        if not self.initalized:
+
+        if not self.initialized:
             return
 
         # Check if close to goal object, if so stop otherwise keep moving
 
     def image_callback(self, data):
         # If goals aren't set yet, do nothing
-        if not self.initalized:
+        print("image_callback")
+        if not self.initialized:
             return
+
+        print("we here")
 
         # take the ROS message with the image and turn it into a format cv2 can use
         img = self.bridge.imgmsg_to_cv2(data, desired_encoding='bgr8')
@@ -75,33 +81,42 @@ class MoveDumbbells(object):
 
         # using moments() function, the center of the colored pixels is determined
         M = cv2.moments(mask)
-
-        # if there are any colored pixels found
+        # if there are any yellow pixels found
+        print("above loop")
         if M['m00'] > 0:
+            print("red pixel found")
                 # center of the yellow pixels in the image
-                cx = int(M['m10']/M['m00'])
-                cy = int(M['m01']/M['m00'])
+            cx = int(M['m10']/M['m00'])
+            cy = int(M['m01']/M['m00'])
+                
 
-                # a black circle is visualized in the debugging window to indicate
-                # the center point of the colored pixels
-                cv2.circle(img, (cx, cy), 20, (255,255,255), -1)
+                   # a red circle is visualized in the debugging window to indicate
+                   # the center point of the yellow pixels
+            cv2.circle(img, (cx, cy), 20, (255,255,255), -1)
 
-                error_x = self.x_mid - cx
-                error_y = cy - self.y_bot
+                
+            kp = 0.5
+                  #318, 369
+            diff = (cx - w/2)/180
+            angular = diff * kp
+            my_twist = Twist(
+                linear=Vector3(0.3, 0, 0),
+                angular=Vector3(0, 0, -angular)
+                )
+            self.twist_pub.publish(my_twist)
 
-                proportional_control_x = self.constant_x * error_x
-                proportional_control_y = self.constant_y * error_y
-
-                self.msg.linear.x = 0.25
-                self.msg.angular.z = proportional_control_x / 10
-
-                print("Velocity:", self.msg.linear.x, "Angular:", self.msg.angular.z)
-
-                self.publisher.publish(self.msg)
-
-        # shows the debugging window
-        cv2.imshow("window", image)
+                # shows the debugging window
+            cv2.imshow("window", img)
+            cv2.waitKey(3)
+        else:
+            my_twist = Twist(
+            linear=Vector3(0, 0, 0),
+            angular=Vector3(0, 0, 0.1)
+            )
+            self.twist_pub.publish(my_twist)
+        cv2.imshow("window", img)
         cv2.waitKey(3)
+
 
     def run(self):
         rospy.spin()
