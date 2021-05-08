@@ -14,6 +14,8 @@ from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import Twist
 from geometry_msgs.msg import Twist, Vector3
 
+
+path_prefix = os.path.dirname(__file__) + "/action_states/"
 class MoveDumbbells(object):
 
     def __init__(self):
@@ -41,9 +43,15 @@ class MoveDumbbells(object):
         self.move_group_arm = moveit_commander.MoveGroupCommander("arm")
         self.move_group_gripper = moveit_commander.MoveGroupCommander("gripper")
 
-        # self.q_matrix = np.loadtxt("output_matrix.txt")
+        self.action_matrix = np.loadtxt(path_prefix + "action_matrix.txt")
+        self.actions = np.loadtxt(path_prefix + "actions.txt")
+        self.q_matrix = np.loadtxt("output_q_matrix.txt")
 
-        self.goal_db = "blue"
+        self.colors = []
+        self.blocks = []
+        
+        self.populate_goals()
+        self.goal_db = self.colors.pop(0)
         self.goal_box = None
 
         # set color boundaries
@@ -67,9 +75,17 @@ class MoveDumbbells(object):
         }
 
         # Control booleans
+
+        #stop in front of right dumbbell
         self.stop_moving = False
-        self.block_proximity = False
+
+        #set to true when we find a block
+        self.ignore_lidar = False
+
+        #set to true when dumbbell is grabbed
         self.holding_db = False
+
+        #
         self.block_detected = False
 
         # Set up proportional control variables
@@ -89,18 +105,35 @@ class MoveDumbbells(object):
 
         print("inited")
 
+    def populate_goals(self):
+        colors = ['red', 'green', 'blue']
+        blocks = ['one','two', 'three']
+        max_val = 0
+        state = 0
+        while max_val != 100:
+            max_val = max(self.q_matrix[state])
+            action = self.q_matrix[state].tolist().index(max_val)
+            state = self.action_matrix[state].tolist().index(action)
+
+            self.colors.append(colors[int(self.actions[int(action)][0])])
+            self.blocks.append(blocks[int(self.actions[int(action)][1]) -1])
+        print("colors:", self.colors)
+        print('blocks:', self.blocks)
+
     def laser_callback(self, data):
         # If goals aren't set yet, do nothing
+        # print("laser_callback")
+        # print("stop_moving:", self.stop_moving)
+        # print("ignore_lidar:", self.ignore_lidar)
+        # print('block_detected:', self.block_detected)
+        # print('holding_db:', self.holding_db)
 
-        if not self.initialized or self.stop_moving or self.block_proximity:
-            print("init:", self.initialized)
-            print("stop_moving:", self.stop_moving)
-            print("block_proximity:", self.block_proximity)
+        if not self.initialized or self.stop_moving or self.ignore_lidar:
             return
 
         # Check if close to goal object
         closest = 3.5
-        distance = 0.25 if not self.holding_db else 0.5
+        distance = 0.23 if not self.holding_db else 0.5
         for i in range(45):
             index = (338 + i) % 360
             closest = closest if closest < data.ranges[index] else data.ranges[index]
@@ -114,6 +147,7 @@ class MoveDumbbells(object):
 
             # Pick up dumbbell
             if not self.holding_db:
+                print("in holding_db false")
                 # Tilt back hand once dumbbell is grabbed
                 arm_joint_goal = [0.0, 0.85, -0.75, -0.3]
                 self.move_group_arm.go(arm_joint_goal, wait=True)
@@ -125,16 +159,17 @@ class MoveDumbbells(object):
                 self.move_group_arm.stop()
 
                 self.goal_db = None
-                self.goal_box = "three"
-                self.block_proximity = True
+                self.goal_box = self.blocks.pop(0)
+                self.ignore_lidar = True
                 self.block_detected = False
 
                 self.stop_moving = False
                 self.holding_db = True
             # Put down dumbbell
             else:
+                print("in holding_db true")
                 # Reset arm to initial position
-                arm_joint_goal = [0.0, 0.85, -0.75, -0.15]
+                arm_joint_goal = [0.0, 0.85, -0.75, -0.3]
                 self.move_group_arm.go(arm_joint_goal, wait=True)
                 self.move_group_arm.stop()
 
@@ -142,21 +177,30 @@ class MoveDumbbells(object):
                 self.twist_msg.linear.x = -0.1
                 self.twist_msg.angular.z = 0
                 self.twist_pub.publish(self.twist_msg)
-                rospy.sleep(1)
+                rospy.sleep(3)
 
                 self.twist_msg.linear.x = 0
                 self.twist_msg.angular.z = 0
                 self.twist_pub.publish(self.twist_msg)
 
-                self.goal_db = "red"
+                arm_joint_goal = [0.0, 0.85, -0.75, -0.15]
+                self.move_group_arm.go(arm_joint_goal, wait=True)
+                self.move_group_arm.stop()
+
+                self.goal_db = self.colors.pop(0)
                 self.goal_box = None
-                self.block_proximity = True
+                self.ignore_lidar = True
                 self.holding_db = False
                 self.block_detected = False
                 self.stop_moving = False
 
     def image_callback(self, data):
         # If goals aren't set yet, do nothing
+        # print("image_callback")
+        # print("stop_moving:", self.stop_moving)
+        # print("ignore_lidar:", self.ignore_lidar)
+        # print('block_detected:', self.block_detected)
+        # print('holding_db:', self.holding_db)
         if (not self.initialized) or self.stop_moving:
             return
 
@@ -207,7 +251,7 @@ class MoveDumbbells(object):
                 return
         
             # Otherwise unblock proximity check and adjust angular velocity
-            self.block_proximity = False
+            self.ignore_lidar = False
             self.block_detected = True
             cx = 0
             for x in prediction_group[0][0][1]:
@@ -215,7 +259,7 @@ class MoveDumbbells(object):
             cx = cx/4
             
 
-            kp = 0.015
+            kp = 0.03
             #318, 369
             diff = (cx - w/2)/180
             angular = diff * kp
@@ -251,9 +295,8 @@ class MoveDumbbells(object):
         # using moments() function, the center of the colored pixels is determined
         M = cv2.moments(mask)
         # if there are any yellow pixels found
-        print(M)
         if M['m00'] > 0:
-            print("color pixel found")
+            self.ignore_lidar = False
                 # center of the yellow pixels in the image
             cx = int(M['m10']/M['m00'])
             cy = int(M['m01']/M['m00'])
