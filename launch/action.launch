@@ -1,1 +1,16 @@
-<!-- TODO -->
+<launch>
+  <arg name="model" default="$(env TURTLEBOT3_MODEL)" doc="model type [waffle, waffle_pi]"/>
+  <arg name="gui" default="true"/>
+  <arg name="paused" default="false"/>
+  <arg name="use_sim_time" default="true"/>
+
+ 
+  <!-- Start move_it -->
+  <include file="$(find turtlebot3_manipulation_moveit_config)/launch/move_group.launch">
+    <arg name="debug" value="false"/>
+  </include>
+
+  <!-- Start move_dumbbells node-->
+  <node name="move_dumbbells_q_learning" pkg="q_learning_project" type="move_dumbbells.py" />
+
+</launch>
