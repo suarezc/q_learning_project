@@ -31,10 +31,8 @@ class MoveDumbbells(object):
                 Image, self.image_callback, queue_size=None)
 
         self.lidar_sub = rospy.Subscriber('/scan', LaserScan, self.laser_callback)
-        self.twist_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
+        self.twist_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=None)
         self.twist_msg = Twist()
-
-        self.proportional_control = 0.005
 
         # set up ROS / cv bridge
         self.bridge = cv_bridge.CvBridge()
@@ -55,7 +53,7 @@ class MoveDumbbells(object):
         self.goal_box = None
 
         # set color boundaries
-        #blue works
+        #blue
         self.lower_blue = np.array([110,50,50])
         self.upper_blue = np.array([130, 255, 255])
 
@@ -63,13 +61,13 @@ class MoveDumbbells(object):
         self.lower_green = np.array([50,100,100])
         self.upper_green = np.array([70, 255, 255])
 
-        #red may need multiple masks but this works
+        #red
         self.lower_red = np.array([0,100,100])
         self.upper_red = np.array([10, 255, 255])
 
         # Set numerical "boundaries"
         self.acceptable_digits = {
-            "one": ['1', 'l', 'i', 't'],
+            "one": ['1','l', 'i', 't'],
             "two": ['2'],
             'three': ['3', 's', 'S']
         }
@@ -79,21 +77,18 @@ class MoveDumbbells(object):
         #stop in front of right dumbbell
         self.stop_moving = False
 
-        #set to true when we find a block
+        #set to true searching for block
         self.ignore_lidar = False
 
         #set to true when dumbbell is grabbed
         self.holding_db = False
 
-        #
+        #set to true when we find  a block
         self.block_detected = False
 
-        # Set up proportional control variables
-        self.x_mid = 0
-        self.constant_x = 0.05
-
+        #Set up arm and grip
         self.move_group_arm.go([0,0,0,0], wait=True)        
-        arm_joint_goal = [0.0, 0.85, -0.75, -0.15]
+        arm_joint_goal = [0.0, 0.90, -0.80, -0.15]
         self.move_group_arm.go(arm_joint_goal, wait=True)
         self.move_group_arm.stop()
 
@@ -103,13 +98,13 @@ class MoveDumbbells(object):
 
         self.initialized = True
 
-        print("inited")
-
+    #translates our q_matrix into a list of actions
     def populate_goals(self):
         colors = ['red', 'green', 'blue']
         blocks = ['one','two', 'three']
         max_val = 0
         state = 0
+        #will continue to add actions until it finds a state with the max reward that signifies success
         while max_val != 100:
             max_val = max(self.q_matrix[state])
             action = self.q_matrix[state].tolist().index(max_val)
@@ -120,36 +115,36 @@ class MoveDumbbells(object):
         print("colors:", self.colors)
         print('blocks:', self.blocks)
 
+
     def laser_callback(self, data):
         # If goals aren't set yet, do nothing
-        # print("laser_callback")
-        # print("stop_moving:", self.stop_moving)
-        # print("ignore_lidar:", self.ignore_lidar)
-        # print('block_detected:', self.block_detected)
-        # print('holding_db:', self.holding_db)
-
         if not self.initialized or self.stop_moving or self.ignore_lidar:
             return
 
         # Check if close to goal object
         closest = 3.5
-        distance = 0.23 if not self.holding_db else 0.5
+        distance = 0.22 if not self.holding_db else .6
+
         for i in range(45):
             index = (338 + i) % 360
-            closest = closest if closest < data.ranges[index] else data.ranges[index]
+            if not self.holding_db:
+                closest = closest if closest < data.ranges[index] else data.ranges[index]
+            else:
+                closest = data.ranges[0] if distance > data.ranges[0] else 3.5
         if closest < distance:
             self.stop_moving = True
 
             self.twist_msg.linear.x = 0
             self.twist_msg.angular.z = 0
             self.twist_pub.publish(self.twist_msg)
+            
             print("Stopping:", closest)
 
             # Pick up dumbbell
             if not self.holding_db:
-                print("in holding_db false")
+                #print("in holding_db false")
                 # Tilt back hand once dumbbell is grabbed
-                arm_joint_goal = [0.0, 0.85, -0.75, -0.3]
+                arm_joint_goal = [0.0, 0.90, -0.80, -0.3]
                 self.move_group_arm.go(arm_joint_goal, wait=True)
                 self.move_group_arm.stop()
 
@@ -158,6 +153,7 @@ class MoveDumbbells(object):
                 self.move_group_arm.go(arm_joint_goal, wait=True)
                 self.move_group_arm.stop()
 
+                #set block to navigate, set db to None
                 self.goal_db = None
                 self.goal_box = self.blocks.pop(0)
                 self.ignore_lidar = True
@@ -167,26 +163,29 @@ class MoveDumbbells(object):
                 self.holding_db = True
             # Put down dumbbell
             else:
-                print("in holding_db true")
-                # Reset arm to initial position
-                arm_joint_goal = [0.0, 0.85, -0.75, -0.3]
-                self.move_group_arm.go(arm_joint_goal, wait=True)
-                self.move_group_arm.stop()
+                #print("in holding_db true")
 
-                # Move backwards for 1 second
-                self.twist_msg.linear.x = -0.1
-                self.twist_msg.angular.z = 0
-                self.twist_pub.publish(self.twist_msg)
-                rospy.sleep(3)
-
+                #HALT!
                 self.twist_msg.linear.x = 0
                 self.twist_msg.angular.z = 0
                 self.twist_pub.publish(self.twist_msg)
 
-                arm_joint_goal = [0.0, 0.85, -0.75, -0.15]
+                # Lower arm to place dumbbell
+                arm_joint_goal = [0.0, 0.80, -0.80, -0.0]
                 self.move_group_arm.go(arm_joint_goal, wait=True)
                 self.move_group_arm.stop()
 
+                #move backward
+                self.twist_msg.linear.x = -0.3
+                self.twist_msg.angular.z = 0
+                self.twist_pub.publish(self.twist_msg)
+
+                #prepare arm to grab next dumbbell
+                arm_joint_goal = [0.0, 0.90, -0.80, -0.15]
+                self.move_group_arm.go(arm_joint_goal, wait=True)
+                self.move_group_arm.stop()
+
+                #set block to None, search for new dumbbell
                 self.goal_db = self.colors.pop(0)
                 self.goal_box = None
                 self.ignore_lidar = True
@@ -196,11 +195,6 @@ class MoveDumbbells(object):
 
     def image_callback(self, data):
         # If goals aren't set yet, do nothing
-        # print("image_callback")
-        # print("stop_moving:", self.stop_moving)
-        # print("ignore_lidar:", self.ignore_lidar)
-        # print('block_detected:', self.block_detected)
-        # print('holding_db:', self.holding_db)
         if (not self.initialized) or self.stop_moving:
             return
 
@@ -217,10 +211,11 @@ class MoveDumbbells(object):
             if self.counter < 75:
                 self.counter += 1
                 return
-            print("we here")
             
             # Reset counter and stop robot so it may process in peace
             self.counter = 0
+
+            #keep track of velocity to move robot after it finishes processing
             old_linear = self.twist_msg.linear.x
             old_angular = self.twist_msg.angular.z
             
@@ -230,8 +225,8 @@ class MoveDumbbells(object):
                 self.twist_pub.publish(self.twist_msg)
 
             prediction_group = self.pipeline.recognize([img])
+            #keep turning if we find nothing in the image
             if not prediction_group[0] or not prediction_group[0][0]:
-                print('empty')
                 self.twist_msg = Twist(
                     linear=Vector3(0, 0, 0),
                     angular=Vector3(0, 0, 0.25)
@@ -253,30 +248,31 @@ class MoveDumbbells(object):
             # Otherwise unblock proximity check and adjust angular velocity
             self.ignore_lidar = False
             self.block_detected = True
+
+            #find center of located symbol for navigation purposes
             cx = 0
             for x in prediction_group[0][0][1]:
                 cx += x[0]
             cx = cx/4
             
 
-            kp = 0.03
-            #318, 369
+            #pid for moving towards block
+            kp = 0.02
             diff = (cx - w/2)/180
             angular = diff * kp
             self.twist_msg = Twist(
                 linear=Vector3(0.1, 0, 0),
                 angular=Vector3(0, 0, -angular)
                 )
-            self.twist_pub.publish(self.twist_msg)
+            #check needed for certain race conditions
+            if not self.stop_moving:
+                self.twist_pub.publish(self.twist_msg)
             print(self.twist_msg)
 
-
-            # cv2.imshow("window", img)
-            # cv2.waitKey(3)
             return
 
         if not self.goal_db:
-            print("No goal dumbbell")
+            #print("No goal dumbbell")
             return
 
         if self.goal_db == 'blue':
@@ -290,34 +286,34 @@ class MoveDumbbells(object):
         
         # erases all pixels that aren't specified color
 
-        self.x_mid = int(w / 2)
 
         # using moments() function, the center of the colored pixels is determined
         M = cv2.moments(mask)
-        # if there are any yellow pixels found
+
+        # if there are any colored pixels found
         if M['m00'] > 0:
             self.ignore_lidar = False
-                # center of the yellow pixels in the image
+            # center of the colored pixels in the image
             cx = int(M['m10']/M['m00'])
             cy = int(M['m01']/M['m00'])
                 
 
-                   # a red circle is visualized in the debugging window to indicate
-                   # the center point of the yellow pixels
+            # a white circle is visualized in the debugging window to indicate
+            # the center point of the colored pixels
             cv2.circle(img, (cx, cy), 20, (255,255,255), -1)
 
                 
+            #pid for moving towards colored dumbbell
             kp = 0.5
-                  #318, 369
             diff = (cx - w/2)/180
             angular = diff * kp
             self.twist_msg = Twist(
-                linear=Vector3(0.1, 0, 0),
+                linear=Vector3(0.085, 0, 0),
                 angular=Vector3(0, 0, -angular)
                 )
             self.twist_pub.publish(self.twist_msg)
 
-            #     # shows the debugging window
+            # shows the debugging window
             cv2.imshow("window", img)
             cv2.waitKey(3)
         else:
@@ -326,8 +322,6 @@ class MoveDumbbells(object):
                 angular=Vector3(0, 0, 0.25)
                 )
             self.twist_pub.publish(self.twist_msg)
-    # cv2.imshow("window", img)
-    # cv2.waitKey(3)
 
 
     def run(self):

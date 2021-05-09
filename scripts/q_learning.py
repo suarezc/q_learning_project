@@ -25,6 +25,8 @@ class QLearning(object):
         rospy.Subscriber("/q_learning/reward", QLearningReward, self.update_q_matrix)
 
         self.counter = 0
+        self.sum = -1
+        self.current_iteration = 0
 
         # Fetch pre-built action matrix. This is a 2d numpy array where row indexes
         # correspond to the starting state and column indexes are the next states.
@@ -63,7 +65,6 @@ class QLearning(object):
         init_reward.header = Header(stamp=rospy.Time.now())
         init_reward.reward = 0
         init_reward.iteration_num = 0
-        print("get here")
 
         rospy.sleep(1)
         self.update_q_matrix(init_reward)
@@ -75,8 +76,6 @@ class QLearning(object):
 
     
     def update_q_matrix(self, data):
-        print("in update")
-        print(self.robot_action_pub.get_num_connections())
         reward = data.reward
 
         reward_calc = reward + self.gamma * max(self.q_matrix[self.current_state]) - self.q_matrix[self.prev_state][self.action]
@@ -98,12 +97,18 @@ class QLearning(object):
 
         # check every 100 itertions if q-matrix has changed yet (takes ab 1 sec)- HAVEN'T DONE YET
 
-        if data.iteration_num == 500:
-            print("Q-matrix converged")
-            print(self.q_matrix)
-            np.savetxt("output_q_matrix.txt", self.q_matrix)
-            rospy.signal_shutdown("Q-matrix has converged.")
-        return
+        
+
+        if data.iteration_num > self.current_iteration + 100:
+            if self.sum == np.sum(self.q_matrix):
+                print("Q-matrix converged")
+                print(self.q_matrix)
+                np.savetxt("output_q_matrix.txt", self.q_matrix)
+                rospy.signal_shutdown("Q-matrix has converged.")
+    
+                return
+            self.current_iteration = data.iteration_num
+            self.sum = np.sum(self.q_matrix)
 
     def reset_state(self):
         self.prev_state = -1
@@ -113,7 +118,6 @@ class QLearning(object):
     def train_q_matrix(self):
         #ideal state is [3,1,2] aka state 39
         #start state is [0,0,0] aka state 0
-        print("intrain")
         self.prev_state = self.current_state
         index = self.current_state
         action = -1
@@ -129,7 +133,6 @@ class QLearning(object):
         self.current_state = choice_state
         self.action = action
         self.robot_action_pub.publish(action_msg)
-        print("sent message")
         print(self.robot_action_pub.get_num_connections())
 
 
