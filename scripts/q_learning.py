@@ -69,22 +69,28 @@ class QLearning(object):
         rospy.sleep(1)
         self.update_q_matrix(init_reward)
 
-    def save_q_matrix(self):
-        # TODO: You'll want to save your q_matrix to a file once it is done to
-        # avoid retraining
-        return
 
     
     def update_q_matrix(self, data):
+
+        #Q Learning algorithm from project page implemented here
         reward = data.reward
 
         reward_calc = reward + self.gamma * max(self.q_matrix[self.current_state]) - self.q_matrix[self.prev_state][self.action]
 
         self.q_matrix[self.prev_state][self.action] += self.alpha * reward_calc
 
+        #Create matrix msg
         matrix_msg = QMatrix()
         matrix_msg.header = Header(stamp=rospy.Time.now())
-        matrix_msg.q_matrix = self.q_matrix
+        matrix_msg.q_matrix = []
+
+        #transform rows into something more palatable for the message and publisher
+        for row in self.q_matrix:
+            #print(row)
+            q_row = QMatrixRow()
+            q_row.q_matrix_row = row.astype(int).tolist()
+            matrix_msg.q_matrix.append(q_row)
         
         self.q_matrix_pub.publish(matrix_msg)
 
@@ -95,26 +101,26 @@ class QLearning(object):
 
         print("Completed up to", data.iteration_num, "rounds")
 
-        # check every 100 itertions if q-matrix has changed yet (takes ab 1 sec)- HAVEN'T DONE YET
-
         
-
+        #If we pass 100 iterations where the sum of the matrix is the same we have converged.
         if data.iteration_num > self.current_iteration + 100:
             if self.sum == np.sum(self.q_matrix):
                 print("Q-matrix converged")
                 print(self.q_matrix)
                 np.savetxt("output_q_matrix.txt", self.q_matrix)
                 rospy.signal_shutdown("Q-matrix has converged.")
-    
                 return
+            
             self.current_iteration = data.iteration_num
             self.sum = np.sum(self.q_matrix)
 
+    #For resetting our states for the train_q_matrix
     def reset_state(self):
         self.prev_state = -1
         self.current_state = 0
         self.action = -1
 
+    #Choose random state that is possible from current state, get the corresponding action and send it
     def train_q_matrix(self):
         #ideal state is [3,1,2] aka state 39
         #start state is [0,0,0] aka state 0
@@ -123,18 +129,18 @@ class QLearning(object):
         action = -1
         choice_state = -1
 
+        #choose valid random state
         while action == -1:
             choice_state = np.random.randint(64)
             action = int(self.action_matrix[index][choice_state])
 
+        #Send message with our desired action and update our state and action trackers
         action_msg = RobotMoveDBToBlock()
         action_msg.robot_db = self.actions[action]["dumbbell"]
         action_msg.block_id = int(self.actions[action]["block"])
         self.current_state = choice_state
         self.action = action
         self.robot_action_pub.publish(action_msg)
-        print(self.robot_action_pub.get_num_connections())
-
 
         return
 
