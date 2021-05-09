@@ -62,6 +62,9 @@ We did not use any outside sources for this and relied solely on the project spe
 * Putting the dumbbell back down at the desired destination
   * This is primarily accomplished in `QLearning.laser_callback()`. Similar to above, the robot will stop when it is 0.5m away from the closest object in front of it (presumably the block). It then lowers its arm being mindful of the claw's position. After the arm is lowered, it slowly backs up to "release" the dumbbell. 
 
+### Gif
+![q_demonstration](/gif.gif)
+
   ### Challenges
   The most difficult challenge was gracefully picking up and releasing the dumbbell. The claw would usually be at an angle that caught some part of the dumbbell and knocked it over/away from the block. We overcame this with a lot of trial and error of different arm positions. We also tinkered with the amount of time spent backing up after placing a dumbbell. We have no "mathematical" evidence for why our final positions work the way they do, they are just the cumulation of our experience. Another difficult aspect of this assignment was figuring out how to maintain a coherent state. Since the robot has to respond to incoming data, your code can't really be perfectly linear (although it isn't really parallel either). So we had to use a set of four "control booleans" to keep track of our current state (e.g., holding dumbbell and moving toward block, looking for dumbbell, etc). 
 
